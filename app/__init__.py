@@ -56,13 +56,43 @@ def normalize_database_url(raw_url: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def _is_production() -> bool:
+    return bool(os.getenv("VERCEL")) or os.getenv("FLASK_ENV") == "production"
+
+
 def _default_database_uri() -> str:
+    """Cadena de conexión a usar.
+
+    Si `DATABASE_URL` no está definida **en producción**, la aplicación falla
+    aquí y de forma inmediata en lugar deIntentarse conectar a nada.
+
+    Antes caía en silencio a un SQLite local y en Vercel terminaba con un
+    críptico "sqlite3.OperationalError: no se puede abrir el archivo de la
+    base de datos", porque el sistema de archivos de las funciones es de solo
+    lectura. Peor aún, el error sólo aparecía en la primera petición que
+    escribiera en la base de datos: las páginas de login devolvían 200 y la
+    aplicación parecía funcionar.
+
+    En desarrollo se mantiene el SQLite local para no depender de PostgreSQL
+    al empezar a trabajar.
+    """
     url = os.getenv("DATABASE_URL")
     if url:
         return normalize_database_url(url)
 
-    # Fallback de desarrollo: SQLite dentro de ./instance para que la app arranque
-    # sin necesidad de PostgreSQL. Supabase/producción siempre define DATABASE_URL.
+    if _is_production():
+        raise RuntimeError(
+            "Falta la variable de entorno DATABASE_URL.\n\n"
+            "La aplicacion esta ejecutandose en un entorno de produccion "
+            "(Vercel detectado) y necesita la cadena de conexion de "
+            "PostgreSQL/Supabase.\n\n"
+            "Configurala en Vercel -> Project Settings -> Environment "
+            "Variables, con este formato:\n"
+            "    DATABASE_URL=postgresql://usuario:contrasena@host:puerto/base\n\n"
+            "El fallback a SQLite solo se permite en desarrollo local."
+        )
+
+    # Desarrollo: SQLite dentro de ./instance para no depender de PostgreSQL.
     instance_path = BASE_DIR / "instance"
     instance_path.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{(instance_path / 'dev.db').as_posix()}"
@@ -80,9 +110,15 @@ def _engine_options() -> dict:
 
     `pool_pre_ping` y `pool_recycle` evitan además los errores de "stale
     connection", típicos cuando el runtime congela una función entre peticiones.
+
+    Los parámetros de tamaño sólo aplican a QueuePool. SQLite usa StaticPool
+    o SingletonThreadPool y rechaza `pool_size`, `max_overflow` y
+    `pool_timeout`, así que se omiten si la base no es un servidor real.
     """
     options = {"pool_pre_ping": True, "pool_recycle": 280}
-    if os.getenv("VERCEL"):  # Vercel inyecta VERCEL=1 en el entorno
+    uri = os.getenv("DATABASE_URL") or ""
+    is_sqlite = uri.startswith("sqlite")
+    if _is_production() and not is_sqlite:
         options.update(pool_size=1, max_overflow=0, pool_timeout=10)
     return options
 

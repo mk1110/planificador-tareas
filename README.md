@@ -33,6 +33,15 @@ python main.py                      # http://127.0.0.1:5000
 
 > **Sin `DATABASE_URL` la app arranca igual** con un SQLite de desarrollo en
 > `instance/dev.db`, útil para trabajar sin configurar Supabase.
+>
+> **En producción ese respaldo está deshabilitado a propósito.** Si detecta
+> Vercel (`VERCEL=1`) o `FLASK_ENV=production` y no encuentra `DATABASE_URL`, la
+> aplicación **falla al arrancar** con un mensaje que indica exactamente qué
+> variable falta y dónde configurarla. Sin esta protección, el sistema de
+> archivos de las funciones de Vercel (solo lectura) producía un críptico
+> `sqlite3.OperationalError: no se puede abrir el archivo de la base de datos`,
+> y además sólo se manifestaba en la primera petición que escribiera en la base:
+> `/login` y `/register` devolvían 200 y la aplicación parecía funcionar.
 
 ### Variables de entorno (`.env`)
 
