@@ -5,3 +5,7 @@ Flask-Login==0.6.3
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.10
 python-dotenv==1.0.1
+# Nota: gunicorn NO se incluye a proposito. Vercel carga la instancia `app`
+# directamente y no lo necesita; ademas gunicorn no funciona en Windows
+# (depende de fcntl). Si despliegas en Render/Railway/Fly, anadelo con:
+#   pip install gunicorn

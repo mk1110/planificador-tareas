@@ -68,11 +68,30 @@ def _default_database_uri() -> str:
     return f"sqlite:///{(instance_path / 'dev.db').as_posix()}"
 
 
+def _engine_options() -> dict:
+    """Ajustes del pool de SQLAlchemy.
+
+    En un backend persistente (Railway, Fly, una VM) un pool normal va bien.
+    En Vercel cada instancia es una función serverless: una app pequeña puede
+    despertar decenas de instancias a la vez, y el pool por defecto de
+    SQLAlchemy (5 conexiones + 10 de desbordamiento) agotaría muy rápido el
+    límite de conexiones de Supabase. Por eso ahí se limita a una conexión y
+    se recorta el desbordamiento a cero.
+
+    `pool_pre_ping` y `pool_recycle` evitan además los errores de "stale
+    connection", típicos cuando el runtime congela una función entre peticiones.
+    """
+    options = {"pool_pre_ping": True, "pool_recycle": 280}
+    if os.getenv("VERCEL"):  # Vercel inyecta VERCEL=1 en el entorno
+        options.update(pool_size=1, max_overflow=0, pool_timeout=10)
+    return options
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
     SQLALCHEMY_DATABASE_URI = _default_database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280}
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options()
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

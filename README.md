@@ -193,21 +193,65 @@ flask --app run.py db downgrade      # revertir (elimina también los tipos ENUM
 flask --app run.py db migrate -m "mensaje"   # generar migración tras editar models.py
 ```
 
-### 6.4 Opciones de despliegue
+### 6.4 Despliegue en Vercel
 
-**a) Vercel / Render / Railway / Fly.io (recomendado)**
+Vercel ejecuta la aplicación como una **Vercel Function**. A diferencia de Render o
+Railway, **no necesita gunicorn**: Vercel carga directamente la instancia `app`.
 
-1. `pip install gunicorn` y añade `gunicorn>=23.0` a `requirements.txt`.
-2. Configura el comando de arranque:
+Como el punto de entrada del proyecto se llama `run.py` y Vercel sólo busca
+`app.py`, `index.py`, `server.py`, `main.py`, `wsgi.py` o `asgi.py`, el fichero
+`pyproject.toml` le indica dónde encontrarla:
+
+```toml
+[tool.vercel]
+entrypoint = "run:app"
+```
+
+**Pasos**
+
+1. Sube los cambios: `git add -A && git commit -m "configuracion de Vercel" && git push`
+2. Entra en [vercel.com/new](https://vercel.com/new) → **Add New → Project** →
+   importa `mk1110/planificador-tareas`.
+3. En **Environment Variables** añade (aplicarlas a *Production*, *Preview* y
+   *Development*):
+
+   | Nombre | Valor |
+   |---|---|
+   | `DATABASE_URL` | La cadena del pooler de Supabase (ver 6.2) |
+   | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` |
+   | `SESSION_COOKIE_SECURE` | `1` |
+   | `FLASK_DEBUG` | `0` |
+
+4. **Deploy**. Aplica las migraciones desde tu máquina (no desde el build):
 
    ```bash
-   gunicorn "run:app" --chdir . --workers 2 --bind 0.0.0.0:$PORT
+   flask --app run.py db upgrade
    ```
 
-3. Define las variables de entorno del paso 6.2.
-4. Ejecuta `flask --app run.py db upgrade` una vez (o en el *release command*).
+> Las migraciones se ejecutan **a mano** y no como build command a propósito: así
+> ves los errores y evitas que dos despliegues simultáneos las ejecuten a la vez.
 
-**b) Docker**
+**Notas importantes**
+
+- Vercel escala horizontalmente y abre muchas conexiones. Por eso es
+  **imprescindible usar el pooler de Supabase** (`aws-0-...pooler.supabase.com`),
+  nunca `db.TU_PROYECTO.supabase.co`. La conexión directa además caduca por IPv6.
+- `pool_pre_ping=True` y `pool_recycle=280` ya están en `app/__init__.py` para
+  sobrevivir a conexiones cerradas por el pooler.
+- Los ficheros estáticos los sirve Vercel desde `public/`, **no** desde
+  `app.static_folder`. Por eso la sección 7 compila Tailwind a un `static/` que
+  en Vercel habría que mover a `public/`.
+
+### 6.5 Otras plataformas
+
+**Render / Railway / Fly.io** — estas sí necesitan gunicorn:
+
+```bash
+pip install gunicorn          # anádelo a requirements.txt
+gunicorn "run:app" --chdir . --workers 2 --bind 0.0.0.0:$PORT
+```
+
+**Docker**
 
 ```dockerfile
 FROM python:3.12-slim
