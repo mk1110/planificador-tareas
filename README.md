@@ -25,10 +25,10 @@ cp .env.example .env               # Windows: Copy-Item .env.example .env
 # Edita .env: SECRET_KEY y DATABASE_URL
 
 # 4. Esquema de la base de datos
-flask --app run.py db upgrade      # la migración inicial ya está incluida
+flask --app main.py db upgrade      # la migración inicial ya está incluida
 
 # 5. Arrancar
-python run.py                      # http://127.0.0.1:5000
+python main.py                      # http://127.0.0.1:5000
 ```
 
 > **Sin `DATABASE_URL` la app arranca igual** con un SQLite de desarrollo en
@@ -66,7 +66,7 @@ python run.py                      # http://127.0.0.1:5000
 ├── instance/                  # SQLite de desarrollo (ignorado por git)
 ├── .env / .env.example        # Configuración por entorno
 ├── requirements.txt
-├── run.py                     # Punto de entrada
+├── main.py                      # Punto de entrada
 └── README.md
 ```
 
@@ -178,7 +178,7 @@ supabase secrets set \
 ### 6.3 Ejecutar las migraciones en producción
 
 ```bash
-flask --app run.py db upgrade
+flask --app main.py db upgrade
 ```
 
 La migración inicial (`migrations/versions/aaf8492102e6_esquema_inicial.py`) crea
@@ -187,10 +187,10 @@ las tablas, los índices, los tipos `ENUM` y la clave foránea con `ON DELETE CA
 Comandos útiles:
 
 ```bash
-flask --app run.py db current        # revisión aplicada
-flask --app run.py db history        # historial
-flask --app run.py db downgrade      # revertir (elimina también los tipos ENUM)
-flask --app run.py db migrate -m "mensaje"   # generar migración tras editar models.py
+flask --app main.py db current        # revisión aplicada
+flask --app main.py db history        # historial
+flask --app main.py db downgrade      # revertir (elimina también los tipos ENUM)
+flask --app main.py db migrate -m "mensaje"   # generar migración tras editar models.py
 ```
 
 ### 6.4 Despliegue en Vercel
@@ -198,14 +198,20 @@ flask --app run.py db migrate -m "mensaje"   # generar migración tras editar mo
 Vercel ejecuta la aplicación como una **Vercel Function**. A diferencia de Render o
 Railway, **no necesita gunicorn**: Vercel carga directamente la instancia `app`.
 
-Como el punto de entrada del proyecto se llama `run.py` y Vercel sólo busca
-`app.py`, `index.py`, `server.py`, `main.py`, `wsgi.py` o `asgi.py`, el fichero
-`pyproject.toml` le indica dónde encontrarla:
+No hace falta ningún fichero de configuración extra. Vercel busca una instancia
+llamada `app` en el directorio raíz con alguno de estos nombres:
 
-```toml
-[tool.vercel]
-entrypoint = "run:app"
 ```
+app.py   index.py   server.py   main.py   wsgi.py   asgi.py
+```
+
+Nuestro punto de entrada se llama **`main.py`**, así que se detecta solo.
+
+> **Por qué no hay `pyproject.toml`.** Se puede usar `[tool.vercel] entrypoint = "run:app"`
+> para apuntar a otro nombre, pero en cuanto existe un `pyproject.toml` Vercel cambia a
+> `uv` para resolver las dependencias y exige una tabla `[project]` (PEP 621). Con un
+> `pyproject.toml` que sólo contiene `[tool.vercel]` el build falla con
+> `No 'project' table found`. Mantener `main.py` y `requirements.txt` evita ese problema.
 
 **Pasos**
 
@@ -225,7 +231,7 @@ entrypoint = "run:app"
 4. **Deploy**. Aplica las migraciones desde tu máquina (no desde el build):
 
    ```bash
-   flask --app run.py db upgrade
+   flask --app main.py db upgrade
    ```
 
 > Las migraciones se ejecutan **a mano** y no como build command a propósito: así
@@ -248,7 +254,7 @@ entrypoint = "run:app"
 
 ```bash
 pip install gunicorn          # anádelo a requirements.txt
-gunicorn "run:app" --chdir . --workers 2 --bind 0.0.0.0:$PORT
+gunicorn "main:app" --chdir . --workers 2 --bind 0.0.0.0:$PORT
 ```
 
 **Docker**
@@ -313,11 +319,11 @@ Y en `base.html` sustituye el `<script>` del CDN por:
 ## 8. Comandos habituales
 
 ```bash
-python run.py                                   # desarrollo
-flask --app run.py shell                        # consola con db/User/Task cargados
-flask --app run.py routes                       # mapa de rutas
-flask --app run.py db upgrade                   # aplicar migraciones
-flask --app run.py db migrate -m "nueva columna"
+python main.py                                   # desarrollo
+flask --app main.py shell                        # consola con db/User/Task cargados
+flask --app main.py routes                       # mapa de rutas
+flask --app main.py db upgrade                   # aplicar migraciones
+flask --app main.py db migrate -m "nueva columna"
 ```
 
 Crear datos de prueba desde la consola:
