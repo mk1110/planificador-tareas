@@ -1,0 +1,606 @@
+{% extends "base.html" %}
+{% from "_task_card.html" import task_card with context %}
+
+{% block title %}Mi panel · Planificador{% endblock %}
+
+{% block content %}
+{% set cat_param = category.value if category else '' %}
+
+<!-- ===================== Cabecera ===================== -->
+<section class="mb-6 animate-fade-in-up">
+  <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+
+    <div>
+      <p class="text-sm font-semibold text-blue-600 dark:text-blue-400">
+        {{ today.strftime('%d/%m/%Y') }} · Hola, {{ current_user.username }}
+      </p>
+      <h1 class="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">{{ period_title }}</h1>
+      <p class="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+        {{ stats.pendientes }} pendiente{{ 's' if stats.pendientes != 1 else '' }}
+        · {{ stats.completadas }} completada{{ 's' if stats.completadas != 1 else '' }}
+        {%- if stats.vencidas %} · {{ stats.vencidas }} vencida{{ 's' if stats.vencidas != 1 else '' }}{% endif %}
+      </p>
+    </div>
+
+    <!-- Controles -->
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- Vista semanal / mensual -->
+      <div class="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <a href="{{ url_for('main.dashboard', view='semanal', ancla=anchor_iso, categoria=cat_param) }}"
+           class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition
+                  {{ 'bg-blue-600 text-white shadow-sm' if view == 'semanal'
+                     else 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
+          Semanal
+        </a>
+        <a href="{{ url_for('main.dashboard', view='mensual', ancla=anchor_iso, categoria=cat_param) }}"
+           class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition
+                  {{ 'bg-blue-600 text-white shadow-sm' if view == 'mensual'
+                     else 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' }}">
+          Mensual
+        </a>
+      </div>
+
+      <!-- Navegación de período -->
+      <div class="inline-flex items-center rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <a href="{{ url_for('main.dashboard', view=view, ancla=previous_anchor.isoformat(), categoria=cat_param) }}"
+           class="grid h-10 w-10 place-items-center rounded-l-xl text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+           title="Período anterior" aria-label="Período anterior">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+          </svg>
+        </a>
+        <a href="{{ url_for('main.dashboard', view=view, categoria=cat_param) }}"
+           class="border-x border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">
+          Hoy
+        </a>
+        <a href="{{ url_for('main.dashboard', view=view, ancla=next_anchor.isoformat(), categoria=cat_param) }}"
+           class="grid h-10 w-10 place-items-center rounded-r-xl text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+           title="Período siguiente" aria-label="Período siguiente">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+          </svg>
+        </a>
+      </div>
+
+      <button type="button" onclick="openCreateModal()"
+              class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 focus:outline-none focus:ring-4 focus:ring-blue-500/30 active:scale-95">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+        </svg>
+        Nueva tarea
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== Filtros por categoría ===================== -->
+<section class="mb-6 flex flex-wrap items-center gap-2 animate-fade-in-up">
+  <a href="{{ url_for('main.dashboard', view=view, ancla=anchor_iso) }}"
+     class="rounded-full px-4 py-2 text-sm font-semibold ring-1 ring-inset transition
+            {{ 'bg-slate-900 text-white ring-slate-900 dark:bg-white dark:text-slate-900 dark:ring-white' if not category
+               else 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800' }}">
+    Todas
+  </a>
+  {% for key, meta in CATEGORY_META.items() %}
+    <a href="{{ url_for('main.dashboard', view=view, ancla=anchor_iso, categoria=key) }}"
+       class="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ring-1 ring-inset transition
+              {{ meta.badge ~ ' ring-transparent' if category and category.value == key
+                 else 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800' }}">
+      <span class="h-2 w-2 rounded-full {{ meta.dot }}"></span>
+      {{ meta.label }}
+    </a>
+  {% endfor %}
+</section>
+
+<!-- ===================== Resumen ===================== -->
+<section class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 animate-fade-in-up">
+  {% set cards = [
+      ('En el período', stats.total,          'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300', '📆'),
+      ('Pendientes',    stats.pendientes,     'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300', '⏳'),
+      ('Completadas',   stats.completadas,    'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300', '✅'),
+      ('Vencidas',      stats.vencidas,       'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300', '⚠️'),
+  ] %}
+  {% for label, value, styles, icon in cards %}
+    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft dark:border-slate-800 dark:bg-slate-900">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ label }}</span>
+        <span class="text-base">{{ icon }}</span>
+      </div>
+      <p class="mt-2 text-3xl font-extrabold tracking-tight">{{ value }}</p>
+      <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div class="h-full rounded-full bg-slate-800 transition-all duration-500 dark:bg-slate-200"
+             style="width: {{ (value / stats.total * 100) if stats.total else 0 }}%"></div>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+
+<!-- ===================== Vista semanal ===================== -->
+{% if view == 'semanal' %}
+  {% set PREVIEW = 3 %}
+
+  <section class="animate-fade-in-up">
+    <!--
+      Los dias se muestran en una tira horizontal con scroll (no en 7 columnas
+      comprimidas): asi cada dia conserva un ancho legible y las tareas se leen
+      una debajo de otra.
+    -->
+    <div class="relative">
+      <!-- Flechas de scroll (solo escritorio) -->
+      <button type="button" onclick="scrollWeek(-1)" aria-label="Días anteriores"
+              class="absolute -left-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-slate-200 bg-white/95 text-slate-500 shadow-soft transition hover:bg-white hover:text-slate-900 lg:grid dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400 dark:hover:text-white">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+        </svg>
+      </button>
+      <button type="button" onclick="scrollWeek(1)" aria-label="Días siguientes"
+              class="absolute -right-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-slate-200 bg-white/95 text-slate-500 shadow-soft transition hover:bg-white hover:text-slate-900 lg:grid dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400 dark:hover:text-white">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+        </svg>
+      </button>
+
+      <div id="weekStrip"
+           class="flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-3
+                  [-ms-overflow-style:none] [scrollbar-width:thin]">
+        {% for day in week_days %}
+          {% set total = day.tasks|length %}
+          <article class="flex w-[86vw] shrink-0 snap-start flex-col rounded-2xl border p-3 transition sm:w-[330px] lg:w-[360px]
+                          {{ 'border-blue-300 bg-blue-50/60 ring-2 ring-blue-500/20 dark:border-blue-500/40 dark:bg-blue-500/5' if day.is_today
+                             else 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900' }}">
+            <!-- Cabecera del dia: al pulsarlo se abran todas sus tareas -->
+            <button type="button" onclick="openDayModal('{{ day.date.isoformat() }}')"
+                    class="-m-1 mb-3 flex items-baseline justify-between rounded-lg px-1 pb-2 text-left transition hover:bg-black/[.03] dark:hover:bg-white/5"
+                    title="Ver todas las tareas del {{ weekdays_short[loop.index0]|lower }}">
+              <span class="text-xs font-bold uppercase tracking-wide {{ 'text-blue-600 dark:text-blue-400' if day.is_today else 'text-slate-500 dark:text-slate-400' }}">
+                {{ weekdays_short[loop.index0] }}
+                {%- if day.is_today %} · hoy{% endif %}
+              </span>
+              <span class="text-2xl font-extrabold leading-none tabular-nums {{ 'text-blue-600 dark:text-blue-400' if day.is_today else (day.is_weekend and 'text-slate-400 dark:text-slate-500' or 'text-slate-700 dark:text-slate-200') }}">
+                {{ day.date.day }}
+              </span>
+            </button>
+
+            <div class="mb-3 border-t border-slate-200/80 dark:border-slate-800"></div>
+
+            <!-- Tareas del dia, apiladas verticalmente -->
+            <div class="flex flex-1 flex-col gap-2">
+              {% for task in day.tasks[:PREVIEW] %}
+                {{ task_card(task, view, anchor_iso, category) }}
+              {% else %}
+                <p class="py-6 text-center text-xs text-slate-400 dark:text-slate-600">
+                  Sin tareas
+                </p>
+              {% endfor %}
+            </div>
+
+            <!-- Ver todas las tareas del dia -->
+            {% if total > PREVIEW %}
+              <button type="button" onclick="openDayModal('{{ day.date.isoformat() }}')"
+                      class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-100 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                Ver las {{ total }} tareas del día
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                </svg>
+              </button>
+            {% elif total > 0 %}
+              <button type="button" onclick="openDayModal('{{ day.date.isoformat() }}')"
+                      class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300">
+                Ver el día completo
+              </button>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Paneles ocultos: el contenido completo de cada dia, para el modal -->
+    <div id="dayPanels" hidden>
+      {% for day in week_days %}
+        <div data-day="{{ day.date.isoformat() }}">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {{ weekdays_short[loop.index0] }} · {{ day.date.day }} de {{ month_name(day.date) }}
+              </p>
+              <h3 class="text-lg font-bold">
+                {{ day.tasks|length }} tarea{{ 's' if day.tasks|length != 1 else '' }}
+              </h3>
+            </div>
+            <button type="button" onclick="closeModals(); openCreateModal('{{ day.date.isoformat() }}')"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-700 active:scale-95">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+              </svg>
+              Añadir tarea
+            </button>
+          </div>
+
+          {% if day.tasks %}
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {% for task in day.tasks %}
+                {{ task_card(task, view, anchor_iso, category) }}
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="rounded-xl border-2 border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">
+              No hay tareas para este día.
+            </p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+<!-- ===================== Vista mensual ===================== -->
+{% else %}
+  <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm animate-fade-in-up dark:border-slate-800 dark:bg-slate-900">
+    <div class="grid grid-cols-7 border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60">
+      {% for name in weekdays_short %}
+        <div class="px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <span class="hidden sm:inline">{{ name }}</span>
+          <span class="sm:hidden">{{ name[0] }}</span>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% for week in calendar_weeks %}
+      <div class="grid grid-cols-7 border-b border-slate-200 last:border-b-0 dark:border-slate-800">
+        {% for day in week %}
+          <div class="min-h-[6.5rem] border-r border-slate-200 p-1.5 last:border-r-0 dark:border-slate-800
+                      {{ 'bg-slate-50/60 dark:bg-slate-950/30' if not day.in_month }}">
+            <div class="mb-1 flex items-center justify-between">
+              <span class="grid h-6 w-6 place-items-center rounded-full text-xs font-bold tabular-nums
+                           {{ 'bg-blue-600 text-white' if day.is_today
+                              else ('text-slate-400 dark:text-slate-600' if not day.in_month
+                                    else 'text-slate-700 dark:text-slate-200') }}">
+                {{ day.day }}
+              </span>
+              {% if day.tasks|length > 2 %}
+                <span class="text-[10px] font-semibold text-slate-400">{{ day.tasks|length }}</span>
+              {% endif %}
+            </div>
+
+            <div class="space-y-1">
+              {% for task in day.tasks %}
+                {% set m = category_meta(task.category.value) %}
+                <button type="button"
+                        onclick='openEditModal({{ { "id": task.id, "title": task.title, "description": task.description or "", "category": task.category.value, "timeframe": task.timeframe.value, "due_date": task.due_date.isoformat() if task.due_date else "", "completed": task.completed }|tojson }})'
+                        title="{{ task.title }}{% if task.description %} — {{ task.description }}{% endif %}"
+                        data-chip-id="{{ task.id }}"
+                        class="month-chip flex w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[11px] font-medium transition hover:brightness-95 dark:hover:brightness-125 {{ m.chip }} {{ m.bar }} border border-transparent {{ 'opacity-50 line-through' if task.completed else '' }}">
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full {{ m.dot }}"></span>
+                  <span class="truncate">{{ task.title }}</span>
+                </button>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </section>
+{% endif %}
+
+<!-- ===================== Tareas sin fecha ===================== -->
+{% if undated_tasks %}
+  <section class="mt-6 animate-fade-in-up">
+    <h2 class="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      🗓️ Sin fecha asignada <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800">{{ undated_tasks|length }}</span>
+    </h2>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {% for task in undated_tasks %}
+        {{ task_card(task, view, anchor_iso, category) }}
+      {% endfor %}
+    </div>
+  </section>
+{% endif %}
+
+{% if stats.total == 0 %}
+  <div class="mt-8 rounded-2xl border-2 border-dashed border-slate-300 p-12 text-center animate-fade-in-up dark:border-slate-700">
+    <div class="text-4xl">🌱</div>
+    <p class="mt-3 text-base font-semibold text-slate-700 dark:text-slate-200">Este período está vacío</p>
+    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Crea tu primera tarea y empieza a planificar.</p>
+    <button type="button" onclick="openCreateModal()"
+            class="mt-5 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-soft transition hover:bg-blue-700 active:scale-95">
+      Nueva tarea
+    </button>
+  </div>
+{% endif %}
+
+
+<!-- ===================== Modal: detalle del día ===================== -->
+<div id="dayModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+  <div class="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl animate-fade-in-up dark:bg-slate-900"
+       onclick="event.stopPropagation()">
+    <div id="dayModalBody"></div>
+    <div class="mt-6 flex justify-end">
+      <button type="button" onclick="closeModals()"
+              class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+        Cerrar
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===================== Modal: crear tarea ===================== -->
+<div id="createModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+  <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl animate-fade-in-up dark:bg-slate-900"
+       onclick="event.stopPropagation()">
+    <div class="mb-5 flex items-start justify-between">
+      <div>
+        <h2 class="text-lg font-bold">Nueva tarea</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Organízala en {{ period_title|lower }}.</p>
+      </div>
+      <button type="button" onclick="closeModals()" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+    </div>
+
+    <form action="{{ url_for('main.create_task') }}" method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <input type="hidden" name="ancla" value="{{ anchor_iso }}">
+      <input type="hidden" name="categoria" value="{{ cat_param }}">
+
+      <div>
+        <label for="c-title" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Título *</label>
+        <input id="c-title" name="title" type="text" required maxlength="200" placeholder="Ej. Preparar informe trimestral"
+               class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div>
+        <label for="c-desc" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Descripción</label>
+        <textarea id="c-desc" name="description" rows="3" placeholder="Detalles opcionales…"
+                  class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"></textarea>
+      </div>
+
+      <!-- Categoría (tarjetas) -->
+      <div>
+        <span class="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-300">Categoría *</span>
+        <div class="grid grid-cols-3 gap-2">
+          {% for key, meta in CATEGORY_META.items() %}
+            <label class="relative cursor-pointer">
+              <input type="radio" name="category" value="{{ key }}" class="peer sr-only"
+                     {% if (category and category.value == key) or (not category and loop.first) %}checked{% endif %}>
+              <div class="flex flex-col items-center gap-1 rounded-xl border-2 border-slate-200 p-3 text-center transition
+                          hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800
+                          peer-checked:border-transparent peer-checked:ring-2 peer-checked:ring-offset-1
+                          dark:peer-checked:ring-offset-slate-900 {{ meta.radio_ring }}">
+                <span class="text-xl">{{ meta.icon }}</span>
+                <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">{{ meta.label }}</span>
+              </div>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label for="c-due" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Fecha límite</label>
+          <input id="c-due" name="due_date" type="date" value="{{ today.isoformat() }}"
+                 class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+        </div>
+        <div>
+          <label for="c-timeframe" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Planificación</label>
+          <select id="c-timeframe" name="timeframe"
+                  class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+            <option value="semanal" {% if default_timeframe.value == 'semanal' %}selected{% endif %}>Semanal</option>
+            <option value="mensual" {% if default_timeframe.value == 'mensual' %}selected{% endif %}>Mensual</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModals()"
+                class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 active:scale-95">
+          Añadir tarea
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ===================== Modal: editar tarea ===================== -->
+<div id="editModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+  <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl animate-fade-in-up dark:bg-slate-900"
+       onclick="event.stopPropagation()">
+    <div class="mb-5 flex items-start justify-between">
+      <div>
+        <h2 class="text-lg font-bold">Editar tarea</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Actualiza los detalles de la tarea.</p>
+      </div>
+      <button type="button" onclick="closeModals()" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+    </div>
+
+    <form id="editForm" method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <input type="hidden" name="ancla" value="{{ anchor_iso }}">
+      <input type="hidden" name="categoria" value="{{ cat_param }}">
+
+      <div>
+        <label for="e-title" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Título *</label>
+        <input id="e-title" name="title" type="text" required maxlength="200"
+               class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div>
+        <label for="e-desc" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Descripción</label>
+        <textarea id="e-desc" name="description" rows="3"
+                  class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"></textarea>
+      </div>
+
+      <div>
+        <span class="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-300">Categoría *</span>
+        <div class="grid grid-cols-3 gap-2">
+          {% for key, meta in CATEGORY_META.items() %}
+            <label class="relative cursor-pointer">
+              <input type="radio" name="category" value="{{ key }}" class="peer sr-only">
+              <div class="flex flex-col items-center gap-1 rounded-xl border-2 border-slate-200 p-3 text-center transition
+                          hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800
+                          peer-checked:border-transparent peer-checked:ring-2 peer-checked:ring-offset-1
+                          dark:peer-checked:ring-offset-slate-900 {{ meta.radio_ring }}">
+                <span class="text-xl">{{ meta.icon }}</span>
+                <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">{{ meta.label }}</span>
+              </div>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label for="e-due" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Fecha límite</label>
+          <input id="e-due" name="due_date" type="date"
+                 class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+        </div>
+        <div>
+          <label for="e-timeframe" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Planificación</label>
+          <select id="e-timeframe" name="timeframe"
+                  class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+            <option value="semanal">Semanal</option>
+            <option value="mensual">Mensual</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
+        <input id="e-completed" type="checkbox" name="completed" value="1"
+               class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-950">
+        Marcar como completada
+      </label>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModals()"
+                class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 active:scale-95">
+          Guardar cambios
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+  // --- Modales ------------------------------------------------------------
+  function show(modalId) {
+    closeModals();
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  function openCreateModal(dueDate = null) {
+    if (dueDate) document.getElementById('c-due').value = dueDate;
+    show('createModal');
+    document.getElementById('c-title').focus();
+  }
+
+  // Muestra todas las tareas de un día concrete de la semana
+  function openDayModal(isoDate) {
+    const panel = document.querySelector(`#dayPanels [data-day="${isoDate}"]`);
+    if (!panel) return;
+    document.getElementById('dayModalBody').innerHTML = panel.innerHTML;
+    show('dayModal');
+  }
+
+  // --- Scroll horizontal de la tira semanal ---
+  function scrollWeek(direction) {
+    const strip = document.getElementById('weekStrip');
+    if (!strip) return;
+    const card = strip.querySelector('article');
+    const step = card ? card.offsetWidth + 16 : strip.clientWidth * 0.8;
+    strip.scrollBy({ left: direction * step, behavior: 'smooth' });
+  }
+
+  function openEditModal(task) {
+    closeModals();
+    document.getElementById('editForm').action = `/tasks/${task.id}/update`;
+    document.getElementById('e-title').value = task.title;
+    document.getElementById('e-desc').value = task.description || '';
+    document.getElementById('e-due').value = task.due_date || '';
+    document.getElementById('e-timeframe').value = task.timeframe;
+    document.getElementById('e-completed').checked = !!task.completed;
+
+    document.querySelectorAll('#editModal input[name="category"]').forEach((input) => {
+      input.checked = input.value === task.category;
+    });
+
+    show('editModal');
+    document.getElementById('e-title').focus();
+  }
+
+  function closeModals() {
+    ['createModal', 'editModal', 'dayModal'].forEach((id) => {
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeModals();
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.classList.contains('backdrop-blur-sm')) closeModals();
+  });
+
+  // --- Marcar como completada (sin recargar) ------------------------------
+  async function toggleTask(taskId, button) {
+    try {
+      const response = await fetch(`/tasks/${taskId}/toggle`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': window.csrfToken, 'X-Requested-With': 'fetch' },
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+
+      const { completed } = await response.json();
+
+      // La misma tarea puede aparecer en varios sitios (tira semanal, panel oculto
+      // del día y modal del día): se actualizan todas sus copias a la vez.
+      document.querySelectorAll(`.task-card[data-task-id="${taskId}"]`).forEach((card) => {
+        card.classList.toggle('opacity-60', completed);
+        const title = card.querySelector('.task-title');
+        if (title) {
+          title.classList.toggle('line-through', completed);
+          title.classList.toggle('opacity-60', completed);
+        }
+        const box = card.querySelector('[data-toggle]');
+        if (box) {
+          box.classList.toggle('border-emerald-500', completed);
+          box.classList.toggle('bg-emerald-500', completed);
+          box.classList.toggle('border-slate-300', !completed);
+          box.classList.toggle('dark:border-slate-600', !completed);
+          box.title = completed ? 'Marcar como pendiente' : 'Marcar como completada';
+          const check = box.querySelector('svg');
+          if (check) {
+            check.classList.toggle('opacity-100', completed);
+            check.classList.toggle('opacity-0', !completed);
+          }
+        }
+      });
+
+      // Chips de la vista mensual
+      document.querySelectorAll(`.month-chip[data-chip-id="${taskId}"]`).forEach((chip) => {
+        chip.classList.toggle('opacity-50', completed);
+        chip.classList.toggle('line-through', completed);
+      });
+    } catch (error) {
+      console.error(error);
+      alert('No se pudo actualizar la tarea. Recarga la página e inténtalo de nuevo.');
+    }
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,140 @@
+"""Configuración de la aplicación y arranque de extensiones (Application Factory)."""
+
+from __future__ import annotations
+
+import os
+from datetime import timedelta
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+from dotenv import load_dotenv
+from flask import Flask
+from flask_login import LoginManager
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
+
+# Se carga el .env antes de leer cualquier variable de entorno.
+load_dotenv()
+
+db = SQLAlchemy()
+migrate = Migrate()
+login_manager = LoginManager()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def normalize_database_url(raw_url: str) -> str:
+    """Adapta una DATABASE_URL de Supabase/Heroku al formato que espera SQLAlchemy.
+
+    - Convierte el prefijo heredado ``postgres://`` en ``postgresql://``.
+    - Fuerza ``sslmode=require`` en PostgreSQL (Supabase exige TLS).
+    - En el *Transaction pooler* de Supabase (puerto 6543) desactiva el cache de
+      prepared statements, ya que ese pooler no las soporta.
+    """
+    url = (raw_url or "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL no está definida en el entorno ni en el archivo .env")
+
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+
+    parsed = urlparse(url)
+    if not parsed.scheme.startswith("postgresql"):
+        # SQLite (desarrollo local) u otro driver: se devuelve tal cual.
+        return url
+
+    try:
+        port = parsed.port
+    except ValueError:  # puerto no numérico
+        port = None
+
+    query = dict(parse_qsl(parsed.query))
+    query.setdefault("sslmode", "require")
+    if port == 6543:
+        query.setdefault("options", "-c statement_cache_size=0")
+
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _default_database_uri() -> str:
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return normalize_database_url(url)
+
+    # Fallback de desarrollo: SQLite dentro de ./instance para que la app arranque
+    # sin necesidad de PostgreSQL. Supabase/producción siempre define DATABASE_URL.
+    instance_path = BASE_DIR / "instance"
+    instance_path.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{(instance_path / 'dev.db').as_posix()}"
+
+
+class Config:
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+    SQLALCHEMY_DATABASE_URI = _default_database_uri()
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280}
+
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    REMEMBER_COOKIE_DURATION = timedelta(days=30)
+    PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+
+    JSON_SORT_KEYS = False
+
+
+def create_app(config_object: type[Config] | None = None) -> Flask:
+    app = Flask(__name__, instance_relative_config=True)
+    app.config.from_object(config_object or Config)
+    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+
+    db.init_app(app)
+    migrate.init_app(app, db)
+    login_manager.init_app(app)
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Inicia sesión para continuar."
+    login_manager.login_message_category = "info"
+
+    # --- Blueprints -------------------------------------------------------
+    from .routes import auth_bp, main_bp
+
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(main_bp)
+
+    # --- Import de modelos (necesario para Flask-Migrate y flask shell) ----
+    from . import models  # noqa: F401
+
+    # --- user_loader de Flask-Login ---------------------------------------
+    from .models import User
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        try:
+            return db.session.get(User, int(user_id))
+        except (TypeError, ValueError):
+            return None
+
+    # --- CSRF + helpers de plantilla --------------------------------------
+    from .helpers import register_date_helpers
+    from .security import register_csrf_protection
+
+    register_csrf_protection(app)
+    register_date_helpers(app)
+
+    # --- Filtros de eventos de SQLAlchemy ---------------------------------
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):  # pragma: no cover
+        """Activa las foreign keys en SQLite (vienen desactivadas por defecto)."""
+        if type(dbapi_connection).__module__.startswith("sqlite3"):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return app

@@ -1,0 +1,28 @@
+# Entorno
+.env
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Base de datos local de desarrollo
+instance/*.db
+
+# Build de Tailwind (si usas el CLI en vez del CDN)
+node_modules/
+static/css/tailwind.css
+static/css/tailwind.min.css
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Excepciones: siempre queremos versionar la plantilla
+!.env.example
