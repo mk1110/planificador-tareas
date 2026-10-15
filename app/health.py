@@ -58,11 +58,11 @@ def _parse_date(raw: str | None) -> date | None:
         return None
 
 
-def _parse_datetime(raw: str | None, *, allow_empty: bool = False) -> datetime | None:
+def _parse_datetime(raw: str | None) -> datetime | None:
     """Interpreta el `datetime-local` del formulario (``2026-10-14T14:30``)."""
     raw = (raw or "").strip()
     if not raw:
-        return None if allow_empty else local_now()
+        return None
     try:
         value = datetime.fromisoformat(raw)
     except ValueError:
@@ -75,10 +75,16 @@ def _parse_datetime(raw: str | None, *, allow_empty: bool = False) -> datetime |
 
 
 def _validated_datetime(raw: str | None) -> tuple[datetime | None, str | None]:
-    """Devuelve `(valor, error)`: la fecha del formulario o la hora actual."""
-    value = _parse_datetime(raw, allow_empty=True)
+    """Devuelve `(valor, error)`: la fecha del formulario o la hora actual.
+
+    Un campo vacío (o ausente) significa "ahora": es el registro automático que
+    ofrece el formulario, y el usuario puede corregirlo antes de enviarlo.
+    """
+    value = _parse_datetime(raw)
     if value is None:
-        return None, "La fecha y la hora no son válidas."
+        if (raw or "").strip():
+            return None, "La fecha y la hora no son válidas."
+        value = local_now()
     if value.year < 1970:
         return None, "La fecha es demasiado antigua."
     if value > local_now() + timedelta(days=1):
