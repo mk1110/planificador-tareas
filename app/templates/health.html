@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Registro de salud · Planificador{% endblock %}
+
+{% block content %}
+{% set tab_defs = [
+    ('tension', '🫀', 'Tensión arterial'),
+    ('glucemia', '🩸', 'Glucemia'),
+    ('medicamentos', '💊', 'Medicamentos'),
+] %}
+
+<!-- ===================== Cabecera ===================== -->
+<section class="mb-6 animate-fade-in-up">
+  <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <p class="text-sm font-semibold text-rose-600 dark:text-rose-400">
+        {{ today.strftime('%d/%m/%Y') }} · Hola, {{ current_user.username }}
+      </p>
+      <h1 class="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">Registro de salud</h1>
+      <p class="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+        Constantes vitales y control de la medicación, en un solo sitio.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== Pestañas ===================== -->
+<nav class="mb-6 grid grid-cols-3 gap-2 animate-fade-in-up" aria-label="Secciones de salud">
+  {% for key, icon, label in tab_defs %}
+    {% set params = {'tab': key} %}
+    {% if key in ('tension', 'glucemia') and rango %}
+      {% set _ = params.update({'rango': rango}) %}
+    {% elif key == 'medicamentos' and fecha %}
+      {% set _ = params.update({'fecha': fecha}) %}
+    {% endif %}
+    <a href="{{ url_for('health.index', **params) }}"
+       class="flex items-center justify-center gap-2 rounded-2xl border px-3 py-3 text-sm font-bold shadow-sm transition
+              {% if tab == key %}
+                border-rose-500 bg-rose-500 text-white shadow-soft
+              {% else %}
+                border-slate-200 bg-white text-slate-600 hover:-translate-y-0.5 hover:border-rose-200 hover:text-rose-600
+                dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-500/40 dark:hover:text-rose-300
+              {% endif %}">
+      <span class="text-base">{{ icon }}</span>
+      <span class="hidden sm:inline">{{ label }}</span>
+      <span class="sm:hidden">{{ label.split(' ')[0] }}</span>
+    </a>
+  {% endfor %}
+</nav>
+
+<!-- ===================== Contenido de la pestaña ===================== -->
+{% if tab == 'tension' %}
+  {% include "_health_tension.html" %}
+{% elif tab == 'glucemia' %}
+  {% include "_health_glucose.html" %}
+{% else %}
+  {% include "_health_meds.html" %}
+{% endif %}
+{% endblock %}
+
+
+{% block scripts %}
+{% include "_health_js.html" %}
+{% endblock %}

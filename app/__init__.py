@@ -155,10 +155,12 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
     login_manager.login_message_category = "info"
 
     # --- Blueprints -------------------------------------------------------
+    from .health import health_bp
     from .routes import auth_bp, main_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(health_bp)
 
     # --- Import de modelos (necesario para Flask-Migrate y flask shell) ----
     from . import models  # noqa: F401

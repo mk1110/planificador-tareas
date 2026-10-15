@@ -1,0 +1,320 @@
+<script>
+  // =========================================================================
+  // Utilidades comunes
+  // =========================================================================
+  const MODALS = ['bpEditModal', 'glucoseEditModal', 'medCreateModal', 'medEditModal'];
+
+  function show(modalId) {
+    closeModals();
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+  }
+
+  function closeModals() {
+    MODALS.forEach((id) => {
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    });
+  }
+
+  function confirmDelete(what) {
+    return `¿Eliminar ${what}? Esta acción no se puede deshacer.`;
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeModals();
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.classList.contains('backdrop-blur-sm')) closeModals();
+  });
+
+  // Añade un horario (HH:MM) al campo de texto, sin duplicados y en orden.
+  function addTime(inputId, timeId) {
+    const input = document.getElementById(inputId);
+    const picker = document.getElementById(timeId);
+    if (!input || !picker || !picker.value) return;
+
+    const current = input.value.split(',').map((part) => part.trim()).filter(Boolean);
+    if (!current.includes(picker.value)) current.push(picker.value);
+    current.sort();
+    input.value = current.join(', ');
+  }
+
+  // Rellena la acción de un formulario con el id del registro (la URL se
+  // genera en el servidor con un id de ejemplo y aquí se sustituye).
+  function setFormAction(formId, templateUrl, id) {
+    document.getElementById(formId).action = templateUrl.replace('/0/', '/' + id + '/');
+  }
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[char]);
+  }
+
+  // =========================================================================
+  // Gráfico de líneas (SVG generado en el navegador, sin dependencias)
+  // =========================================================================
+  function renderLineChart(el, config) {
+    const labels = config.labels || [];
+    const unit = config.unit || '';
+    const series = (config.series || []).filter(
+      (item) => (item.data || []).some((value) => value !== null && value !== undefined),
+    );
+
+    if (!labels.length || !series.length) {
+      el.innerHTML =
+        '<p class="py-14 text-center text-sm text-slate-400">' +
+        'No hay datos suficientes para dibujar el gráfico todavía.</p>';
+      return;
+    }
+
+    const W = 760;
+    const H = 250;
+    const PAD = { top: 12, right: 18, bottom: 28, left: 46 };
+    const innerW = W - PAD.left - PAD.right;
+    const innerH = H - PAD.top - PAD.bottom;
+
+    const values = [];
+    series.forEach((item) => {
+      item.data.forEach((value) => {
+        if (value !== null && value !== undefined) values.push(Number(value));
+      });
+    });
+    (config.reference || []).forEach((line) => values.push(line.value));
+
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (min === max) { min -= 5; max += 5; }
+    const margin = (max - min) * 0.15;
+    min = Math.floor(min - margin);
+    max = Math.ceil(max + margin);
+
+    const n = labels.length;
+    const xAt = (i) => (n === 1 ? PAD.left + innerW / 2 : PAD.left + (i * innerW) / (n - 1));
+    const yAt = (v) => PAD.top + innerH - ((v - min) / (max - min)) * innerH;
+    const tick = (v) => (Math.abs(v) < 10 && !Number.isInteger(v) ? v.toFixed(1) : Math.round(v));
+
+    const parts = [`<svg viewBox="0 0 ${W} ${H}" class="h-auto w-full" role="img" aria-label="Gráfico de evolución">`];
+
+    // Rejilla horizontal y etiquetas del eje Y.
+    for (let i = 0; i <= 4; i++) {
+      const value = min + ((max - min) * i) / 4;
+      const y = yAt(value);
+      parts.push(
+        `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}" ` +
+        'stroke="currentColor" stroke-opacity="0.12" stroke-width="1" />',
+        `<text x="${PAD.left - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" font-size="10" ` +
+        `fill="currentColor" fill-opacity="0.5">${tick(value)}</text>`,
+      );
+    }
+
+    // Líneas de referencia (por ejemplo, los límites 120/80 de la tensión).
+    (config.reference || []).forEach((line) => {
+      if (line.value < min || line.value > max) return;
+      const y = yAt(line.value);
+      parts.push(
+        `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}" ` +
+        'stroke="currentColor" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="4 4" />',
+        `<text x="${W - PAD.right}" y="${(y - 5).toFixed(1)}" text-anchor="end" font-size="9" ` +
+        `fill="currentColor" fill-opacity="0.45">${esc(line.label)}</text>`,
+      );
+    });
+
+    // Etiquetas del eje X (se saltan si hay muchas mediciones).
+    const step = Math.max(1, Math.ceil(n / 7));
+    labels.forEach((label, index) => {
+      if (index % step !== 0 && index !== n - 1) return;
+      parts.push(
+        `<text x="${xAt(index).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" ` +
+        `fill="currentColor" fill-opacity="0.5">${esc(label)}</text>`,
+      );
+    });
+
+    // Series: se dibuja un trazo por cada tramo consecutivo sin huecos, para
+    // que un pulso ausente no una una lectura de la anterior con la siguiente.
+    series.forEach((item) => {
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          const d = run.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+          parts.push(`<path d="${d}" fill="none" stroke="${esc(item.color)}" stroke-width="2" ` +
+            'stroke-linecap="round" stroke-linejoin="round" />');
+        }
+        if (run.length === 1) {
+          parts.push(`<circle cx="${run[0].x.toFixed(1)}" cy="${run[0].y.toFixed(1)}" r="3" fill="${esc(item.color)}" />`);
+        }
+        run = [];
+      };
+
+      item.data.forEach((value, index) => {
+        if (value === null || value === undefined) { flush(); return; }
+        run.push({ x: xAt(index), y: yAt(Number(value)), value: Number(value), index });
+      });
+      flush();
+
+      item.data.forEach((value, index) => {
+        if (value === null || value === undefined) return;
+        parts.push(
+          `<circle cx="${xAt(index).toFixed(1)}" cy="${yAt(Number(value)).toFixed(1)}" r="3" ` +
+          `fill="${esc(item.color)}" fill-opacity="0.9"><title>${esc(labels[index])} · ${esc(item.name)}: ` +
+          `${esc(tick(Number(value)))} ${esc(unit)}</title></circle>`,
+        );
+      });
+    });
+
+    parts.push('</svg>');
+    el.innerHTML = parts.join('');
+  }
+
+  // =========================================================================
+  // Formularios de edición
+  // =========================================================================
+  const BP_UPDATE_URL = '{{ url_for("health.update_bp", reading_id=0) }}';
+  const GLUCOSE_UPDATE_URL = '{{ url_for("health.update_glucose", reading_id=0) }}';
+  const MED_UPDATE_URL = '{{ url_for("health.update_medication", medication_id=0) }}';
+
+  function openBpEdit(reading) {
+    setFormAction('bpEditForm', BP_UPDATE_URL, reading.id);
+    document.getElementById('be-sys').value = reading.systolic;
+    document.getElementById('be-dia').value = reading.diastolic;
+    document.getElementById('be-pulse').value = reading.pulse ?? '';
+    document.getElementById('be-date').value = reading.measured_at;
+    document.getElementById('be-notes').value = reading.notes;
+    show('bpEditModal');
+    document.getElementById('be-sys').focus();
+  }
+
+  function openGlucoseEdit(reading) {
+    setFormAction('glucoseEditForm', GLUCOSE_UPDATE_URL, reading.id);
+    document.getElementById('ge-value').value = reading.value;
+    document.getElementById('ge-unit').value = reading.unit;
+    document.getElementById('ge-moment').value = reading.moment;
+    document.getElementById('ge-date').value = reading.measured_at;
+    document.getElementById('ge-notes').value = reading.notes;
+    show('glucoseEditModal');
+    document.getElementById('ge-value').focus();
+  }
+
+  function openMedicationEdit(medication) {
+    setFormAction('medEditForm', MED_UPDATE_URL, medication.id);
+    document.getElementById('me-name').value = medication.name;
+    document.getElementById('me-dose').value = medication.dose;
+    document.getElementById('me-times').value = medication.times;
+    document.querySelectorAll('#medEditForm input[name="days"]').forEach((input) => {
+      input.checked = medication.days.charAt(Number(input.value)) === '1';
+    });
+    show('medEditModal');
+    document.getElementById('me-name').focus();
+  }
+
+  // =========================================================================
+  // Gráficos: se pintan al cargar la página
+  // =========================================================================
+  document.querySelectorAll('[data-chart]').forEach((el) => {
+    try {
+      renderLineChart(el, {
+        ...JSON.parse(el.dataset.chart),
+        unit: el.dataset.unit || '',
+      });
+    } catch (error) {
+      console.error(error);
+      el.innerHTML = '<p class="py-14 text-center text-sm text-slate-400">No se pudo dibujar el gráfico.</p>';
+    }
+  });
+
+  // =========================================================================
+  // Checklist de tomas: se actualiza sin recargar la página
+  // =========================================================================
+  const INTAKE_STATES = {
+    pendiente: { icon: '🕒', label: 'Pendiente' },
+    tomado: { icon: '✅', label: 'Tomado' },
+    omitido: { icon: '⛔', label: 'Omitido' },
+  };
+
+  const INTAKE_BADGES = {
+    pendiente: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-500/15 dark:text-slate-300 dark:ring-slate-500/30',
+    tomado: 'bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30',
+    omitido: 'bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30',
+  };
+
+  function refreshIntakeSummary() {
+    const counts = { pendiente: 0, tomado: 0, omitido: 0 };
+    document.querySelectorAll('.intake-row').forEach((row) => {
+      const status = row.dataset.status;
+      if (status in counts) counts[status] += 1;
+    });
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    const set = (key, value) => {
+      document.querySelectorAll(`[data-summary="${key}"]`).forEach((el) => { el.textContent = value; });
+    };
+    set('tomadas', `${counts.tomado}/${total} tomas`);
+    set('pendientes', counts.pendiente);
+    set('omitidas', counts.omitido);
+  }
+
+  function describeIntake(data) {
+    if (data.status === 'tomado' && data.taken_at) {
+      const time = data.taken_at.slice(11, 16);
+      if (data.minutes_late === null || data.minutes_late === undefined) return `Tomada a las ${time}`;
+      return data.minutes_late > 0
+        ? `Tomada a las ${time} (con ${data.minutes_late} min de retraso)`
+        : `Tomada a las ${time} (a la hora prevista)`;
+    }
+    return data.status === 'omitido' ? 'No tomada' : 'Sin registrar';
+  }
+
+  async function setIntakeStatus(intakeId, status) {
+    const row = document.querySelector(`.intake-row[data-intake-id="${intakeId}"]`);
+    if (!row) return;
+
+    const previous = row.dataset.status;
+    if (previous === status) return;
+
+    try {
+      const response = await fetch(`/health/intakes/${intakeId}`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': window.csrfToken,
+          'X-Requested-With': 'fetch',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ status: status }).toString(),
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+
+      const data = await response.json();
+      row.dataset.status = data.status;
+
+      row.querySelectorAll('[data-set-status]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.setStatus === data.status));
+      });
+
+      const badge = row.querySelector('.intake-state');
+      const state = INTAKE_STATES[data.status];
+      badge.className = `intake-state inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ring-inset ${INTAKE_BADGES[data.status]}`;
+      badge.innerHTML = `<span>${state.icon}</span> ${state.label}`;
+
+      row.querySelector('.intake-taken').textContent = describeIntake(data);
+      row.classList.toggle('bg-slate-50/60', data.status !== 'pendiente');
+      row.classList.toggle('dark:bg-slate-800/40', data.status !== 'pendiente');
+
+      refreshIntakeSummary();
+    } catch (error) {
+      console.error(error);
+      alert('No se pudo actualizar la toma. Recarga la página e inténtalo de nuevo.');
+    }
+  }
+
+  document.querySelectorAll('[data-set-status]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setIntakeStatus(Number(button.closest('.intake-row').dataset.intakeId), button.dataset.setStatus);
+    });
+  });
+</script>
