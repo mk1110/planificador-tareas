@@ -123,6 +123,33 @@ def _engine_options() -> dict:
     return options
 
 
+def _build_sha() -> str:
+    """SHA (7 caracteres) del commit desplegado.
+
+    En Vercel la variable ``VERCEL_GIT_COMMIT_SHA`` la inyecta la plataforma en
+    cada build. En local se resuelve leyendo ``.git``. Si no se puede determinar
+    (por ejemplo, un despliegue sin el directorio ``.git``) devuelve ``"local"``.
+
+    Se expone como ``build_sha`` en el HTML (``<meta name="build-commit">``)
+    para poder comprobar por HTTP qué versión está sirviendo un dominio sin
+    necesidad de iniciar sesión.
+    """
+    sha = os.getenv("VERCEL_GIT_COMMIT_SHA")
+    if sha:
+        return sha[:7]
+
+    try:
+        head = (BASE_DIR / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            ref = (BASE_DIR / ".git" / head[5:].strip()).read_text(
+                encoding="utf-8"
+            ).strip()
+            return ref[:7]
+        return head[:7]
+    except OSError:
+        return "local"
+
+
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
     SQLALCHEMY_DATABASE_URI = _default_database_uri()
@@ -181,6 +208,11 @@ def create_app(config_object: type[Config] | None = None) -> Flask:
 
     register_csrf_protection(app)
     register_date_helpers(app)
+
+    @app.context_processor
+    def _inject_build():
+        """SHA del despliegue, visible en el HTML de todas las páginas."""
+        return {"build_sha": _build_sha()}
 
     # --- Filtros de eventos de SQLAlchemy ---------------------------------
     from sqlalchemy import event

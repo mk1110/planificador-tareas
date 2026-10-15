@@ -7,6 +7,9 @@
   <title>{% block title %}Planificador de Tareas{% endblock %}</title>
 
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <!-- Sirve para comprobar por HTTP qué commit está desplegado en un dominio:
+       curl -s https://tu-dominio/login | grep build-commit -->
+  <meta name="build-commit" content="{{ build_sha }}">
 
   <script>
     // Aplica el tema antes del primer pintado para evitar el parpadeo.

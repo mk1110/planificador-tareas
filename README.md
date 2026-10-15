@@ -57,6 +57,7 @@ python main.py                      # http://127.0.0.1:5000
 | `DATABASE_URL` | En producción | Cadena de conexión PostgreSQL de Supabase. |
 | `SESSION_COOKIE_SECURE` | No | `1` en producción (HTTPS). |
 | `FLASK_DEBUG` | No | `1` para el servidor de desarrollo con recarga automática. |
+| `VERCEL_GIT_COMMIT_SHA` | No | La inyecta Vercel en cada build. Solo se **lee**: se expone en el HTML como `<meta name="build-commit">` para comprobar qué versión está desplegada. |
 
 ---
 
@@ -453,6 +454,23 @@ flask --app main.py routes                       # mapa de rutas
 flask --app main.py db upgrade                   # aplicar migraciones
 flask --app main.py db migrate -m "nueva columna"
 ```
+
+### Comprobar qué versión está desplegada
+
+Todas las páginas incluyen el commit en un `meta`, **también sin iniciar
+sesión**, así que se puede comprobar desde fuera:
+
+```bash
+curl -s https://tu-dominio/login | grep build-commit
+# <meta name="build-commit" content="e2e8eb9">
+```
+
+- En **Vercel** sale el SHA que la plataforma inyecta en el build.
+- En **local** sale el commit de tu rama `HEAD` (o `local` si no hay `.git`).
+
+Es la forma rápida de distinguir un despliegue pendiente de un problema de
+caché en el navegador: si el SHA no es el último commit de `main`, Vercel aún
+no ha desplegado.
 
 Crear datos de prueba desde la consola:
 
