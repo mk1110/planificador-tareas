@@ -61,8 +61,9 @@
           <span class="hidden text-base font-bold tracking-tight sm:block">Planificador</span>
         </a>
 
-        <!-- Secciones -->
-        <nav class="ml-2 hidden items-center gap-1 sm:flex" aria-label="Secciones">
+        <!-- Secciones: visibles también en móvil (solo se oculta el logo largo,
+     así que "Tareas" y "Salud" caben sin comprimir nada) -->
+        <nav class="ml-1 flex items-center gap-0.5 sm:ml-2 sm:gap-1" aria-label="Secciones">
           {% set sections = [
               ('main.dashboard', 'Tareas'),
               ('health.index', 'Salud'),
@@ -70,7 +71,7 @@
           {% for endpoint, label in sections %}
             {% set active = request.endpoint == endpoint or (endpoint == 'health.index' and request.blueprint == 'health') %}
             <a href="{{ url_for(endpoint) }}"
-               class="rounded-lg px-3 py-1.5 text-sm font-semibold transition
+               class="rounded-lg px-2 py-1.5 text-sm font-semibold transition sm:px-3
                       {% if active %}
                         bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white
                       {% else %}
