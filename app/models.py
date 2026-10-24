@@ -1,4 +1,4 @@
-"""Modelos SQLAlchemy: User, Task y los del módulo de salud."""
+"""Modelos SQLAlchemy: User, Task, finanzas y los del módulo de salud."""
 
 from __future__ import annotations
 
@@ -100,6 +100,7 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    dinero_disponible = db.Column(db.Float, nullable=False, default=0.0)
 
     tasks = db.relationship(
         "Task",
@@ -132,6 +133,14 @@ class User(UserMixin, db.Model):
     )
     medication_intakes = db.relationship(
         "MedicationIntake",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # --- Finanzas -----------------------------------------------------------
+    finance_services = db.relationship(
+        "FinanceService",
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -476,3 +485,46 @@ class MedicationIntake(db.Model):
             f"<Intake {self.medication_id} {self.scheduled_date} "
             f"{self.scheduled_time:%H:%M} {self.status.value}>"
         )
+
+
+class FinanceService(db.Model):
+    """Servicio/boleta por pagar con importe y fecha de vencimiento."""
+
+    __tablename__ = "finance_services"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    servicio = db.Column(db.String(120), nullable=False)
+    importe = db.Column(db.Float, nullable=False, default=0.0)
+    fecha_vencimiento = db.Column(db.Date, nullable=False)
+    pagado = db.Column(db.Boolean, nullable=False, default=False)
+    fecha_pago = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    user = db.relationship("User", back_populates="finance_services")
+
+    # -- Utilidades ---------------------------------------------------------
+    @property
+    def esta_vencido(self) -> bool:
+        """True si ya pasó la fecha de vencimiento y no está pagado."""
+        return (
+            not self.pagado
+            and self.fecha_vencimiento
+            and self.fecha_vencimiento < date.today()
+        )
+
+    @property
+    def proximo_vencer(self) -> bool | None:
+        """True si vence en los próximos 7 días y no está pagado."""
+        if self.pagado or not self.fecha_vencimiento:
+            return None
+        delta = (self.fecha_vencimiento - date.today()).days
+        return 0 <= delta <= 7
+
+    def __repr__(self) -> str:  # pragma: no cover - ayuda en la consola
+        return f"<FinanceService {self.servicio} ${self.importe} vence {self.fecha_vencimiento}>"

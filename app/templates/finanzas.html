@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Finanzas · Planificador{% endblock %}
+
+{% block content %}
+<!-- ===================== Tarjeta de resumen ===================== -->
+<section class="mb-6 animate-fade-in-up">
+  <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Dinero disponible</p>
+        <p class="text-3xl font-extrabold tracking-titulo">${{ current_user.dinero_disponible | numformat }}</p>
+      </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pendiente</p>
+        <p class="text-3xl font-extrabold text-rose-600">${{ total_pendiente | numformat }}</p>
+      </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pagado</p>
+        <p class="text-3xl font-extrabound text-emerald-600">${{ total_pagado | numformat }}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== Lista de servicios ===================== -->
+<section class="mb-6 animate-fade-in-up">
+  <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <h2 class="text-lg font-bold mb-4">Mis servicios por pagar</h2>
+
+    {% if services %}
+    <div class="space-y-4">
+      {% for s in services %}
+      <div class="p-4 rounded-xl border {% if s.esta_vencido %}border-rose-500 bg-rose-500/10 dark:border-rose-400 dark:bg-rose-900/20{% elif s.proximo_vencer %}border-emerald-500 bg-emerald-500/10 dark:border-emerald-400 dark:bg-emerald-900/20{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900{% endif %} hover:transition-shadow hover:shadow-soft">
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <h3 class="font-medium {{ 'text-rose-600 dark:text-rose-400' if s.esta_vencido else ('text-emerald-600 dark:text-emerald-400' if s.proximo_vencer else 'text-slate-600 dark:text-slate-300') }}">
+              {{ s.servicio }}
+              {% if s.esta_vencido %}<span class="text-xs text-rose-500 ms-1">🔴 Vencido</span>
+              {% elif s.proximo_vencer %}<span class="text-xs text-emerald-500 ms-1">⚠️ Vence pronto</span>{% endif %}
+            </h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Vence: {{ s.fecha_vencimiento.strftime('%d/%m/%Y') }}</p>
+          </div>
+          <div class="text-right">
+            <p class="font-semibold {{ 'text-rose-600 dark:text-rose-400' if s.esta_vencido else ('text-emerald-600 dark:text-emerald-400' if s.proximo_vencer else 'text-slate-600 dark:text-slate-300') }}">${{ s.importe | numformat }}</p>
+            {% if not s.pagado %}
+            <button onclick="pagarServicio({{ s.id }})" class="mt-2 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 px-3 py-1.5 text-xs font-bold text-white transition hover:from-rose-600 hover:to-rose-700">
+              Pagar
+            </button>
+            {% else %}
+            <span class="text-xs text-emerald-500">✓ Pagado</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-center text-slate-500 dark:text-slate-400 py-8">No tienes servicios registrados aún.</p>
+    {% endif %}
+  </div>
+</section>
+
+<!-- ===================== Agregar nuevo servicio ===================== -->
+<section class="mt-6 animate-fade-in-up">
+  <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <h2 class="text-lg font-bold mb-4">Añadir nuevo servicio</h2>
+
+    <form action="{{ url_for('main.finance_agregar') }}" method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div>
+        <label for="servicio" class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Servicio *</label>
+        <input id="servicio" name="servicio" type="text" required placeholder="Ej. Teléfono, Luz, Internet"
+               class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label for="importe" class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Importe *</label>
+          <input id="importe" name="importe" type="number" step="0.01" required placeholder="0.00"
+                 class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+        </div>
+        <div>
+          <label for="fecha_vencimiento" class="block text-sm font-semibold text-slate-700 dark:text-slate-300">Fecha de vencimiento *</label>
+          <input id="fecha_vencimiento" name="fecha_vencimiento" type="date" required
+                 class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+        </div>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModals()" class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancelar</button>
+        <button type="submit"
+                class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 active:scale-95">
+          Añadir servicio
+        </button>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% block scripts %}
+<script>
+  // --- Función para pagar un servicio ---
+  function pagarServicio(id) {
+    if (!confirm('¿Estás seguro de que quieres marcar este servicio como pagado?')) return;
+
+    fetch(`/finanzas/pagar/${id}`, {
+      method: 'POST',
+      headers: {
+        'X-CSRF-Token': window.csrfToken,
+        'X-Requested-With': 'fetch'
+      }
+    })
+    .then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      if (data.success) {
+        location.reload();
+      } else {
+        alert('Error: ' + (data.message || 'Unknown error'));
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      alert('No se pudo pagar el servicio. Recarga la página e inténtalo de nuevo.');
+    });
+  }
+</script>
+{% endblock %}
