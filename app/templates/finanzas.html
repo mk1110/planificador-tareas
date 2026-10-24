@@ -10,6 +10,10 @@
       <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Dinero disponible</p>
         <p class="text-3xl font-extrabold tracking-titulo">${{ current_user.dinero_disponible | numformat }}</p>
+        <button type="button" onclick="openSaldoModal()"
+                class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition hover:text-blue-700 hover:underline dark:text-blue-400">
+          <span>+</span> Cargar o ajustar saldo
+        </button>
       </div>
       <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pendiente</p>
@@ -17,7 +21,7 @@
       </div>
       <div>
         <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pagado</p>
-        <p class="text-3xl font-extrabound text-emerald-600">${{ total_pagado | numformat }}</p>
+        <p class="text-3xl font-extrabold text-emerald-600">${{ total_pagado | numformat }}</p>
       </div>
     </div>
   </div>
@@ -89,7 +93,7 @@
       </div>
 
       <div class="flex gap-3 pt-2">
-        <button type="button" onclick="closeModals()" class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Cancelar</button>
+        <button type="reset" class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Limpiar</button>
         <button type="submit"
                 class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 active:scale-95">
           Añadir servicio
@@ -99,8 +103,74 @@
   </div>
 </section>
 
+<!-- ===================== Modal: Gestionar saldo ===================== -->
+<div id="saldoModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+  <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-fade-in-up dark:bg-slate-900" onclick="event.stopPropagation()">
+    <div class="mb-4 flex items-start justify-between">
+      <div>
+        <h3 class="text-lg font-bold">Gestionar dinero disponible</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Saldo actual: ${{ current_user.dinero_disponible | numformat }}</p>
+      </div>
+      <button type="button" onclick="closeSaldoModal()" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+    </div>
+
+    <form action="{{ url_for('main.finance_saldo') }}" method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div>
+        <label for="accion" class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Acción *</label>
+        <select id="accion" name="accion" class="mt-1 w-full rounded-xl border-slate-300 bg-white px-3 py-2 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+          <option value="agregar">Sumar al saldo actual</option>
+          <option value="fijar">Establecer nuevo saldo</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="monto" class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Importe ($) *</label>
+        <input id="monto" name="monto" type="number" step="0.01" min="0" required placeholder="Ej. 10000"
+               class="mt-1 w-full rounded-xl border-slate-300 bg-white px-3 py-2 text-sm transition focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeSaldoModal()"
+                class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-blue-700 hover:to-violet-700 active:scale-95">
+          Guardar saldo
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
 {% block scripts %}
 <script>
+  function openSaldoModal() {
+    const modal = document.getElementById('saldoModal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      const input = document.getElementById('monto');
+      if (input) input.focus();
+    }
+  }
+
+  function closeSaldoModal() {
+    const modal = document.getElementById('saldoModal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+  }
+
+  // Cerrar modal al hacer click fuera
+  document.getElementById('saldoModal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeSaldoModal();
+  });
+
   // --- Función para pagar un servicio ---
   function pagarServicio(id) {
     if (!confirm('¿Estás seguro de que quieres marcar este servicio como pagado?')) return;
@@ -112,20 +182,19 @@
         'X-Requested-With': 'fetch'
       }
     })
-    .then(response => {
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      return response.json();
+    .then(async response => {
+      const data = await response.json().catch(() => ({ success: false, message: 'Respuesta inesperada del servidor' }));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Error al procesar el pago');
+      }
+      return data;
     })
     .then(data => {
-      if (data.success) {
-        location.reload();
-      } else {
-        alert('Error: ' + (data.message || 'Unknown error'));
-      }
+      location.reload();
     })
     .catch(error => {
       console.error('Error:', error);
-      alert('No se pudo pagar el servicio. Recarga la página e inténtalo de nuevo.');
+      alert(error.message || 'No se pudo pagar el servicio.');
     });
   }
 </script>

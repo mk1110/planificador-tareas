@@ -1,5 +1,7 @@
 # Entorno
 .env
+.env.*
+*.bak
 venv/
 .venv/
 env/

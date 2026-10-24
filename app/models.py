@@ -55,6 +55,12 @@ class Timeframe(str, enum.Enum):
     MENSUAL = "mensual"
 
 
+class TransactionType(str, enum.Enum):
+    SERVICIO = "servicio"
+    GASTO = "gasto"
+    INGRESO = "ingreso"
+
+
 class GlucoseMoment(str, enum.Enum):
     """Momento de la medición de glucemia."""
 
@@ -146,6 +152,15 @@ class User(UserMixin, db.Model):
         passive_deletes=True,
     )
 
+    # --- Módulo de transacciones personales ----------------------------------
+    expenses = db.relationship(
+        "Expense",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="select",
+    )
+
     # -- Contraseña (nunca se almacena en texto plano) ----------------------
     def set_password(self, raw_password: str) -> None:
         self.password_hash = generate_password_hash(raw_password)
@@ -221,6 +236,43 @@ class Task(db.Model):
     def __repr__(self) -> str:  # pragma: no cover - ayuda en la consola
         state = "x" if self.completed else " "
         return f"<Task {state} [{self.category.value}] {self.title!r}>"
+
+
+# ===========================================================================
+# Módulo de transacciones personales (gastos, ingresos, servicios)
+# ===========================================================================
+class Expense(db.Model):
+    """Un gasto, ingreso o servicio registrado por un usuario."""
+
+    __tablename__ = "expenses"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_expense_amount_positive"),
+        Index("ix_expenses_user_date", "user_id", "date"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    type = _enum_column(TransactionType, "expense_type")
+    amount = db.Column(db.Float, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    date = db.Column(db.Date, nullable=False, default=local_now)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    user = db.relationship("User", back_populates="expenses")
+
+    # -- Utilidades ---------------------------------------------------------
+    @property
+    def display_type(self) -> str:
+        """Retorna 'Servicio', 'Gasto' o 'Ingreso' según el tipo."""
+        return self.type.value.capitalize()
+
+    def __repr__(self) -> str:  # pragma: no cover - ayuda en la consola
+        return f"<Expense {self.type.value} {self.amount} - {self.description or ''} @ {self.date}>"
 
 
 # ===========================================================================

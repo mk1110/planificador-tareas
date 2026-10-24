@@ -18,9 +18,9 @@ from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
-from . import db
+from . import db, limiter
 from .helpers import build_month_grid, month_bounds, month_name, week_bounds
-from .models import Category, Task, Timeframe, User, normalize_email, FinanceService
+from .models import Category, Expense, Task, Timeframe, TransactionType, User, normalize_email, FinanceService
 
 auth_bp = Blueprint("auth", __name__)
 main_bp = Blueprint("main", __name__)
@@ -246,6 +246,12 @@ def dashboard():
         "sin_fecha": count(Task.due_date.is_(None)),
     }
 
+    # --- Resumen de transacciones -----------------------------------------
+    tx_conditions = (Expense.user_id == current_user.id)
+    expenses = db.session.scalars(
+        db.select(Expense).where(tx_conditions).order_by(Expense.date.desc())
+    ).all()
+
     # --- Navegación entre períodos ----------------------------------------
     if view == "semanal":
         previous_anchor, next_anchor = start - timedelta(days=7), end + timedelta(days=1)
@@ -284,6 +290,7 @@ def dashboard():
         stats=stats,
         tasks_by_date=tasks_by_date,
         undated_tasks=undated,
+        expenses=expenses,
         week_days=[
             {
                 "date": start + timedelta(days=i),
@@ -305,11 +312,11 @@ def dashboard():
 @login_required
 def finance_index():
     """Lista los servicios/boletas del usuario."""
-    services = (
+    services = db.session.scalars(
         db.select(FinanceService)
         .where(FinanceService.user_id == current_user.id)
         .order_by(FinanceService.fecha_vencimiento.asc(), FinanceService.id.asc())
-    ).scalars().all()
+    ).all()
 
     # Calcular alertas: servicios próximos a vencer (7 días)
     hoy = date.today()
@@ -396,22 +403,28 @@ def finance_agregar():
 @login_required
 def finance_pagar(service_id: int):
     """Pagar un servicio usando el dinero disponible."""
+    is_fetch = request.is_json or request.headers.get("X-Requested-With") == "fetch"
     service = db.session.get(FinanceService, service_id)
     if service is None or service.user_id != current_user.id:
         abort(404)
 
     if service.pagado:
-        flash("Este servicio ya está pagado.", "info")
+        msg = "Este servicio ya está pagado."
+        if is_fetch:
+            return jsonify({"success": False, "message": msg}), 400
+        flash(msg, "info")
         return redirect(url_for("main.finance_index"))
 
     # Descontar del dinero disponible
     disponible = current_user.dinero_disponible
     if disponible < service.importe:
-        flash(
+        msg = (
             f"No tienes suficiente dinero disponible. "
-            f"Tienes ${disponible} y el servicio cuesta ${service.importe}.",
-            "error",
+            f"Tienes ${disponible:.2f} y el servicio cuesta ${service.importe:.2f}."
         )
+        if is_fetch:
+            return jsonify({"success": False, "message": msg}), 400
+        flash(msg, "error")
         return redirect(url_for("main.finance_index"))
 
     # Registrar pago
@@ -420,17 +433,53 @@ def finance_pagar(service_id: int):
     current_user.dinero_disponible -= service.importe
 
     db.session.commit()
-    flash(
-        f'Servicio "{service.servicio}" pagado por ${service.importe}. '
-        f'Queda ${current_user.dinero_disponible} disponible.',
-        "success",
+    msg = (
+        f'Servicio "{service.servicio}" pagado por ${service.importe:.2f}. '
+        f'Queda ${current_user.dinero_disponible:.2f} disponible.'
     )
+    if is_fetch:
+        return jsonify({
+            "success": True,
+            "message": msg,
+            "dinero_disponible": current_user.dinero_disponible,
+        }), 200
+
+    flash(msg, "success")
+    return redirect(url_for("main.finance_index"))
+
+
+@main_bp.post("/finanzas/saldo")
+@login_required
+def finance_saldo():
+    """Actualiza o añade al dinero disponible del usuario."""
+    monto_raw = request.form.get("monto")
+    accion = request.form.get("accion", "agregar")
+    try:
+        monto = float(monto_raw)
+        if accion == "agregar":
+            if monto <= 0:
+                flash("El monto a añadir debe ser mayor a 0.", "error")
+            else:
+                current_user.dinero_disponible += monto
+                db.session.commit()
+                flash(f"Se han añadido ${monto:.2f} a tu dinero disponible.", "success")
+        elif accion == "fijar":
+            if monto < 0:
+                flash("El saldo no puede ser negativo.", "error")
+            else:
+                current_user.dinero_disponible = monto
+                db.session.commit()
+                flash(f"Dinero disponible fijado en ${monto:.2f}.", "success")
+    except (ValueError, TypeError):
+        flash("Introduce un importe numérico válido.", "error")
+
     return redirect(url_for("main.finance_index"))
 
 
 # ===========================================================================
 # CRUD de tareas
 # ===========================================================================
+@main_bp.post("/tasks")
 @login_required
 def create_task():
     title = (request.form.get("title") or "").strip()
@@ -516,6 +565,71 @@ def delete_task(task_id: int):
     db.session.delete(task)
     db.session.commit()
     flash(f'Tarea "{title}" eliminada.', "info")
+    return redirect(_back_to_dashboard())
+
+
+# ===========================================================================
+# CRUD de transacciones personales (gastos, ingresos, servicios)
+# ===========================================================================
+@main_bp.post("/expenses")
+@login_required
+def create_expense():
+    type_raw = (request.form.get("type") or "").strip()
+    amount_raw = (request.form.get("amount") or "").strip()
+    description = (request.form.get("description") or "").strip() or None
+    date_raw = (request.form.get("date") or "").strip()
+
+    # Validar tipo
+    transaction_type = _parse_transaction_type(type_raw)
+    if transaction_type is None:
+        flash("Selecciona un tipo de transacción válido.", "error")
+        return redirect(_back_to_dashboard())
+
+    # Validar monto
+    try:
+        amount = float(amount_raw)
+    except (ValueError, TypeError):
+        flash("El monto debe ser un número válido.", "error")
+        return redirect(_back_to_dashboard())
+    if amount <= 0:
+        flash("El monto debe ser mayor que cero.", "error")
+        return redirect(_back_to_dashboard())
+
+    # Validar fecha
+    date = _parse_optional_date(date_raw)
+    if date is None:
+        date = date.today()
+
+    expense = Expense(
+        user_id=current_user.id,
+        type=transaction_type,
+        amount=amount,
+        description=description,
+        date=date,
+    )
+    db.session.add(expense)
+    db.session.commit()
+    flash(f'{"Ingreso" if transaction_type == TransactionType.INGRESO else "Servicio/Gasto"} "${amount:.2f}" añadido.', "success")
+
+    return redirect(_back_to_dashboard())
+
+
+def _parse_transaction_type(raw: str) -> TransactionType | None:
+    try:
+        return TransactionType((raw or "").strip())
+    except ValueError:
+        return None
+
+
+@main_bp.post("/expenses/<int:expense_id>/delete")
+@login_required
+def delete_expense(expense_id: int):
+    expense = db.session.get(Expense, expense_id)
+    if expense is None or expense.user_id != current_user.id:
+        abort(404)
+    db.session.delete(expense)
+    db.session.commit()
+    flash(f'{"Ingreso" if expense.type == TransactionType.INGRESO else "Servicio/Gasto"} "${expense.amount:.2f}" eliminado.', "success")
     return redirect(_back_to_dashboard())
 
 

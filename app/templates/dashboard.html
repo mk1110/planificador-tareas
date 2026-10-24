@@ -115,6 +115,114 @@
   {% endfor %}
 </section>
 
+<!-- ===================== Resumen de transacciones ===================== -->
+<section class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 animate-fade-in-up">
+  {% set total_services = 0 %}
+  {% set total_expenses = 0 %}
+  {% set total_incomes = 0 %}
+
+  {% for expense in expenses %}
+    {% set is_service = expense.type == 'servicio' %}
+    {% set is_expense = expense.type == 'gasto' %}
+    {% set is_income = expense.type == 'ingreso' %}
+    {% if is_service %}{% set total_services = total_services + expense.amount %}{% endif %}
+    {% if is_expense %}{% set total_expenses = total_expenses + expense.amount %}{% endif %}
+    {% if is_income %}{% set total_incomes = total_incomes + expense.amount %}{% endif %}
+  {% endfor %}
+
+  {% set cards = [
+    ('Servicios', total_services, 'bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300', '🛠️'),
+    ('Gastos', total_expenses, 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300', '💰'),
+    ('Ingresos', total_incomes, 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300', '💵'),
+  ] %}
+
+  {% for label, value, styles, icon in cards %}
+    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft dark:border-slate-800 dark:bg-slate-900">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ label }}</span>
+        <span class="text-base">{{ icon }}</span>
+      </div>
+      <p class="mt-2 text-3xl font-extrabold tracking-tight">{{ value }}</p>
+      <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div class="h-full rounded-full bg-slate-800 transition-all duration-500 dark:bg-slate-200"
+             style="width: {{ (value / (total_services + total_expenses + total_incomes) * 100) if (total_services + total_expenses + total_incomes) > 0 else 0 }}%"></div>
+      </div>
+    </div>
+  {% endfor %}
+</section>
+
+<!-- ===================== Nueva transacción ===================== -->
+<section class="mb-6 animate-fade-in-up">
+  <button type="button" onclick="openTransactionModal()"
+          class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-4 focus:ring-green-500/30 active:scale-95">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+    </svg>
+    Nueva transacción
+  </button>
+</section>
+
+<!-- ===================== Modal: crear transacción ===================== -->
+<div id="transactionModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+  <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl animate-fade-in-up dark:bg-slate-900"
+       onclick="event.stopPropagation">
+    <div class="mb-5 flex items-start justify-between">
+      <div>
+        <h2 class="text-lg font-bold">Nueva transacción</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Registra un servicio, gasto u ingreso.</p>
+      </div>
+      <button type="button" onclick="closeModals()" class="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+    </div>
+
+    <form action="{{ url_for('main.create_expense') }}" method="post" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <input type="hidden" name="ancla" value="{{ anchor_iso }}">
+      <input type="hidden" name="categoria" value="{{ cat_param }}">
+
+      <div>
+        <label for="t-type" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Tipo *</label>
+        <select id="t-type" name="type" required
+                class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-green-500 focus:ring-green-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+          <option value="servicio">Servicio</option>
+          <option value="gasto">Gasto</option>
+          <option value="ingreso">Ingreso</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="t-amount" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Monto *</label>
+        <input id="t-amount" name="amount" type="number" step="0.01" required
+               placeholder="0.00"
+               class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-green-500 focus:ring-green-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div>
+        <label for="t-description" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Descripción</label>
+        <textarea id="t-description" name="description" rows="3" placeholder="Descripción opcional…"
+                  class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-green-500 focus:ring-green-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white"></textarea>
+      </div>
+
+      <div>
+        <label for="t-date" class="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-300">Fecha *</label>
+        <input id="t-date" name="date" type="date" required
+               value="{{ today.isoformat() }}"
+               class="w-full rounded-xl border-slate-300 bg-white px-4 py-2.5 text-sm transition focus:border-green-500 focus:ring-green-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="closeModals()"
+                class="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="flex-1 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:from-green-700 hover:to-emerald-700 active:scale-95">
+          Guardar transacción
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
 <!-- ===================== Vista semanal ===================== -->
 {% if view == 'semanal' %}
   {% set PREVIEW = 3 %}
@@ -230,6 +338,7 @@
         </div>
       {% endfor %}
     </div>
+  </div>
   </section>
 
 <!-- ===================== Vista mensual ===================== -->
@@ -540,8 +649,14 @@
     document.getElementById('e-title').focus();
   }
 
+  function openTransactionModal() {
+    closeModals();
+    show('transactionModal');
+    document.getElementById('t-type').focus();
+  }
+
   function closeModals() {
-    ['createModal', 'editModal', 'dayModal'].forEach((id) => {
+    ['createModal', 'editModal', 'dayModal', 'transactionModal'].forEach((id) => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.classList.add('hidden');
